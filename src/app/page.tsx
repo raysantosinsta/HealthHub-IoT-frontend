@@ -19,7 +19,7 @@ type ConnectionStatus = "connected" | "disconnected" | "connecting";
 type FallType = "none" | "free_fall" | "impact" | "confirmed";
 
 // Defina a URL do seu Backend NestJS aqui
-const BACKEND_URL = "http://localhost:3000"; 
+const BACKEND_URL = "http://localhost:3001"; 
 
 export default function PatientMonitor() {
   // Estados de Sinais Vitais
@@ -37,33 +37,49 @@ export default function PatientMonitor() {
 
   // --- EFEITO: CONEXÃO WEBSOCKET (SOCKET.IO) ---
   useEffect(() => {
-    // Conecta ao seu Backend NestJS
-    const socket: Socket = io(BACKEND_URL);
+    console.log("🔌 Tentando conectar ao WebSocket em:", BACKEND_URL);
 
-    socket.on("connect", () => {
-      setConnectionStatus("connected");
-      console.log("Conectado ao Backend via WebSocket");
+    // FORÇANDO O ENDEREÇO CORRETO AQUI 👇
+    const socketURL = "http://localhost:3001"; 
+    
+    console.log("🔌 Tentando conectar HARDCODED em:", socketURL);
+
+    const socket: Socket = io(socketURL, {
+      transports: ['websocket'], // Vamos forçar Websocket direto para evitar Polling
     });
 
-    socket.on("disconnect", () => {
+    socket.on("connect", () => {
+      console.log("✅ WebSocket CONECTADO! ID:", socket.id);
+      setConnectionStatus("connected");
+    });
+
+    socket.on("connect_error", (err) => {
+      console.error("❌ Erro de Conexão WebSocket:", err.message);
       setConnectionStatus("disconnected");
     });
 
-    // MUDANÇA 2: Ouvir eventos customizados que o Backend envia
+    socket.on("disconnect", (reason) => {
+      console.warn("⚠️ WebSocket Desconectado. Motivo:", reason);
+      setConnectionStatus("disconnected");
+    });
+
+    // --- LOGS DOS DADOS ---
     
-    // Ouve dados vitais (BPM/SpO2) vindos do Backend
     socket.on("dados_vitais", (data: any) => {
+        console.log("💙 DADOS VITAIS RECEBIDOS:", data); // <--- OLHE AQUI NO CONSOLE
         lastPacketTime.current = Date.now();
         
         if (data.bpm > 0 || data.spo2 > 0) {
             setBpm(data.bpm);
             setSpo2(data.spo2);
-            setLastUpdate(new Date().toLocaleTimeString("pt-BR", { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+            setLastUpdate(new Date().toLocaleTimeString("pt-BR"));
+        } else {
+            console.log("Dados recebidos mas ignorados (zeros):", data);
         }
     });
 
-    // Ouve dados de queda vindos do Backend
     socket.on("dados_quedas", (data: any) => {
+        console.log("🚨 DADOS QUEDA RECEBIDOS:", data); // <--- OLHE AQUI NO CONSOLE
         lastPacketTime.current = Date.now();
         const now = new Date().toLocaleTimeString("pt-BR");
 
@@ -75,6 +91,7 @@ export default function PatientMonitor() {
     });
 
     return () => {
+      console.log("Desmontando componente e fechando socket...");
       socket.disconnect();
     };
   }, []);
