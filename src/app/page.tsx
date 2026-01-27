@@ -1,277 +1,227 @@
 "use client";
 
-import {
-  Droplets,
-  Heart,
-  RefreshCw,
-  Wifi,
-  WifiOff,
-  AlertCircle,
-  CheckCircle2,
-  Activity
+import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { useAuth } from "@/contexts/AuthContext";
+import { 
+  Activity, 
+  Check, 
+  ArrowRight, 
+  Zap, 
+  Shield, 
+  BrainCircuit, 
+  LayoutDashboard 
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
-// MUDANÇA 1: Importar Socket.IO em vez de MQTT
-import { io, Socket } from "socket.io-client";
 
-// --- Tipagens ---
-type ConnectionStatus = "connected" | "disconnected" | "connecting";
-type FallType = "none" | "free_fall" | "impact" | "confirmed";
+export default function HomePage() {
+  const router = useRouter();
+  const { isAuthenticated, loading } = useAuth();
+  const [billingCycle, setBillingCycle] = useState<"monthly" | "yearly">("monthly");
 
-// Defina a URL do seu Backend NestJS aqui
-const BACKEND_URL = "http://localhost:3001"; 
-
-export default function PatientMonitor() {
-  // Estados de Sinais Vitais
-  const [bpm, setBpm] = useState<number>(0);
-  const [spo2, setSpo2] = useState<number>(0);
-  const [lastUpdate, setLastUpdate] = useState<string>("");
-  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("connecting");
-  
-  // Estados de Queda
-  const [fallType, setFallType] = useState<FallType>("none");
-  const [fallGForce, setFallGForce] = useState<number>(0);
-  const [fallTime, setFallTime] = useState<string>("");
-
-  const lastPacketTime = useRef<number>(Date.now());
-
-  // --- EFEITO: CONEXÃO WEBSOCKET (SOCKET.IO) ---
-  useEffect(() => {
-    console.log("🔌 Tentando conectar ao WebSocket em:", BACKEND_URL);
-
-    // FORÇANDO O ENDEREÇO CORRETO AQUI 👇
-    const socketURL = "http://localhost:3001"; 
-    
-    console.log("🔌 Tentando conectar HARDCODED em:", socketURL);
-
-    const socket: Socket = io(socketURL, {
-      transports: ['websocket'], // Vamos forçar Websocket direto para evitar Polling
-    });
-
-    socket.on("connect", () => {
-      console.log("✅ WebSocket CONECTADO! ID:", socket.id);
-      setConnectionStatus("connected");
-    });
-
-    socket.on("connect_error", (err) => {
-      console.error("❌ Erro de Conexão WebSocket:", err.message);
-      setConnectionStatus("disconnected");
-    });
-
-    socket.on("disconnect", (reason) => {
-      console.warn("⚠️ WebSocket Desconectado. Motivo:", reason);
-      setConnectionStatus("disconnected");
-    });
-
-    // --- LOGS DOS DADOS ---
-    
-    socket.on("dados_vitais", (data: any) => {
-        console.log("💙 DADOS VITAIS RECEBIDOS:", data); // <--- OLHE AQUI NO CONSOLE
-        lastPacketTime.current = Date.now();
-        
-        if (data.bpm > 0 || data.spo2 > 0) {
-            setBpm(data.bpm);
-            setSpo2(data.spo2);
-            setLastUpdate(new Date().toLocaleTimeString("pt-BR"));
-        } else {
-            console.log("Dados recebidos mas ignorados (zeros):", data);
-        }
-    });
-
-    socket.on("dados_quedas", (data: any) => {
-        console.log("🚨 DADOS QUEDA RECEBIDOS:", data); // <--- OLHE AQUI NO CONSOLE
-        lastPacketTime.current = Date.now();
-        const now = new Date().toLocaleTimeString("pt-BR");
-
-        if (data.g) setFallGForce(data.g);
-
-        if (data.status === "queda_livre") { setFallType("free_fall"); setFallTime(now); }
-        else if (data.status === "impacto") { setFallType("impact"); setFallTime(now); }
-        else if (data.status === "QUEDA_CONFIRMADA") { setFallType("confirmed"); setFallTime(now); }
-    });
-
-    return () => {
-      console.log("Desmontando componente e fechando socket...");
-      socket.disconnect();
-    };
-  }, []);
-
-  // --- EFEITO: WATCHDOG (Igual ao anterior) ---
-  useEffect(() => {
-    const watchdogInterval = setInterval(() => {
-      const now = Date.now();
-      if (now - lastPacketTime.current > 4000) {
-        if (bpm !== 0 || spo2 !== 0) {
-          setBpm(0);
-          setSpo2(0);
-        }
-      }
-    }, 1000);
-    return () => clearInterval(watchdogInterval);
-  }, [bpm, spo2]);
-
-  const resetFallStatus = () => {
-    setFallType("none");
-    setFallGForce(0);
-    setFallTime("");
-  };
-
-  // --- Funções Auxiliares de Estilo (Iguais ao anterior) ---
-  const getHeaderStatus = () => {
-    if (fallType === "confirmed") return "EMERGÊNCIA DETECTADA";
-    if (fallType === "impact") return "ALERTA DE IMPACTO";
-    if (bpm === 0) return "AGUARDANDO SENSOR...";
-    return "MONITORAMENTO ATIVO";
-  };
-
-  const getHeaderColor = () => {
-    if (fallType === "confirmed") return "bg-red-700";
-    if (fallType === "impact") return "bg-orange-600";
-    if (bpm === 0) return "bg-slate-600";
-    return "bg-indigo-700";
+  // Redireciona para dashboard se já estiver logado e clicar no plano Free
+  const handleAccess = (plan: string) => {
+    if (plan === "free") {
+        if (isAuthenticated) router.push("/dashboard");
+        else router.push("/login");
+    } else {
+        alert(`O plano ${plan} estará disponível em breve!`);
+    }
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 font-sans pb-10">
+    <div className="min-h-screen bg-slate-50 font-sans">
       
-      {/* HEADER */}
-      <header className={`${getHeaderColor()} text-white p-6 transition-colors duration-500 shadow-lg`}>
-        <div className="max-w-4xl mx-auto flex justify-between items-center">
-          <div className="flex items-center gap-3">
-            <Activity className="w-8 h-8" />
-            <div>
-              <h1 className="text-2xl font-bold tracking-tight">{getHeaderStatus()}</h1>
-              <p className="text-xs opacity-80 uppercase font-medium tracking-widest">Painel de Controle do Paciente</p>
-            </div>
-          </div>
-          <div className={`flex items-center gap-2 text-sm px-4 py-2 rounded-full backdrop-blur-md ${connectionStatus === 'connected' ? 'bg-green-500/20' : 'bg-red-500/20'}`}>
-            {connectionStatus === "connected" ? <Wifi className="w-4 h-4 text-green-300"/> : <WifiOff className="w-4 h-4 text-red-300"/>}
-            <span className="font-semibold">{connectionStatus === "connected" ? "Servidor Online" : "Servidor Offline"}</span>
-          </div>
+      {/* HERO SECTION */}
+      <section className="relative overflow-hidden bg-slate-900 pt-20 pb-32 lg:pt-32">
+        {/* Background Effects */}
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-full z-0">
+            <div className="absolute top-20 left-10 w-96 h-96 bg-indigo-600/30 rounded-full blur-[100px]" />
+            <div className="absolute bottom-20 right-10 w-80 h-80 bg-rose-500/20 rounded-full blur-[100px]" />
         </div>
-      </header>
 
-      <main className="max-w-4xl mx-auto p-4 space-y-6 -mt-6">
-        
-        {/* ALERTA DE QUEDA */}
-        {fallType !== "none" && (
-          <div className={`rounded-2xl p-6 shadow-2xl border-2 flex flex-col md:flex-row justify-between items-center gap-6 animate-bounce-short ${
-            fallType === 'confirmed' ? 'bg-white border-red-500' : 'bg-white border-orange-500'
-          }`}>
-            <div className="flex items-start gap-4">
-              <div className={`p-4 rounded-2xl ${fallType === 'confirmed' ? 'bg-red-100 text-red-600' : 'bg-orange-100 text-orange-600'}`}>
-                <AlertCircle className="w-10 h-10" />
-              </div>
-              <div>
-                <h2 className={`text-2xl font-black ${fallType === 'confirmed' ? 'text-red-600' : 'text-orange-600'}`}>
-                  {fallType === "confirmed" ? "QUEDA CONFIRMADA!" : "IMPACTO DETECTADO"}
-                </h2>
-                <p className="text-slate-700 font-medium">
-                  Evento registrado às <span className="font-bold underline">{fallTime}</span>.
-                </p>
-                <div className="mt-2 inline-block px-3 py-1 bg-slate-100 rounded text-sm font-mono text-slate-600">
-                  Intensidade: <b>{fallGForce.toFixed(2)}G</b>
-                </div>
-              </div>
-            </div>
+        <div className="relative z-10 max-w-7xl mx-auto px-6 text-center">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 text-xs font-bold uppercase tracking-widest mb-6">
+            <span className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse"></span>
+            Nova Versão 2.0 com IA
+          </div>
+          
+          <h1 className="text-5xl md:text-7xl font-black text-white tracking-tight mb-6">
+            Monitoramento Clínico <br />
+            <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-rose-400">
+              Inteligente & Preditivo
+            </span>
+          </h1>
+          
+          <p className="max-w-2xl mx-auto text-lg text-slate-400 mb-10 leading-relaxed">
+            Centralize sinais vitais, receba alertas importantes em tempo real e antecipe riscos com envios automaticos via Telegram ou Whatsapp. A solução completa para hospitais modernos.
+          </p>
 
+          <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <button 
-              onClick={resetFallStatus}
-              className={`flex items-center gap-2 px-8 py-4 rounded-xl font-black text-white transition-all transform hover:scale-105 active:scale-95 shadow-xl ${
-                fallType === 'confirmed' ? 'bg-red-600 hover:bg-red-700' : 'bg-orange-600 hover:bg-orange-700'
-              }`}
+                onClick={() => handleAccess("free")}
+                className="px-8 py-4 bg-white text-slate-900 rounded-xl font-bold text-lg hover:bg-slate-100 transition shadow-xl shadow-white/10 flex items-center justify-center gap-2"
             >
-              <CheckCircle2 className="w-6 h-6" />
-              LIMPAR ALERTA
+                {isAuthenticated ? "Ir para Dashboard" : "Acessar Agora"}
+                <ArrowRight size={20} />
+            </button>
+            <button className="px-8 py-4 bg-white/5 text-white border border-white/10 rounded-xl font-bold text-lg hover:bg-white/10 transition backdrop-blur-sm">
+                Agendar Demo
             </button>
           </div>
-        )}
+        </div>
+      </section>
 
-        {/* GRID DE SINAIS VITAIS */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          
-          {/* BPM */}
-          <div className={`bg-white p-8 rounded-3xl shadow-sm border-b-8 transition-all duration-500 transform
-            ${bpm > 0 ? 'border-rose-500' : 'border-slate-200 opacity-60'}
-          `}>
-             <div className="flex justify-between items-start">
-               <div>
-                 <p className="text-slate-400 text-xs font-black uppercase tracking-widest">Frequência Cardíaca</p>
-                 <div className="flex items-baseline gap-1 mt-2">
-                    <span className="text-7xl font-black text-slate-800 tracking-tighter">
-                      {bpm > 0 ? bpm : "--"}
-                    </span>
-                    <span className="text-slate-400 font-bold text-xl uppercase">bpm</span>
-                 </div>
-               </div>
-               <div className={`p-4 rounded-2xl ${bpm > 0 ? 'bg-rose-50 text-rose-500' : 'bg-slate-50 text-slate-300'}`}>
-                  <Heart className={`w-10 h-10 ${bpm > 0 ? 'animate-pulse' : ''}`} />
-               </div>
-             </div>
-             
-             <div className="mt-6 flex gap-2">
-                {bpm > 0 && bpm < 60 && <Badge color="bg-blue-100 text-blue-700">Bradicardia</Badge>}
-                {bpm >= 60 && bpm <= 100 && <Badge color="bg-green-100 text-green-700">Normal</Badge>}
-                {bpm > 100 && <Badge color="bg-rose-100 text-rose-700">Taquicardia</Badge>}
-                {bpm === 0 && <span className="text-sm text-slate-400 font-medium italic">Sem sinal do servidor</span>}
-             </div>
-          </div>
-
-          {/* SpO2 */}
-          <div className={`bg-white p-8 rounded-3xl shadow-sm border-b-8 transition-all duration-500 transform
-            ${spo2 > 0 ? 'border-sky-500' : 'border-slate-200 opacity-60'}
-          `}>
-             <div className="flex justify-between items-start">
-               <div>
-                 <p className="text-slate-400 text-xs font-black uppercase tracking-widest">Saturação de O₂</p>
-                 <div className="flex items-baseline gap-1 mt-2">
-                    <span className="text-7xl font-black text-slate-800 tracking-tighter">
-                      {spo2 > 0 ? spo2 : "--"}
-                    </span>
-                    <span className="text-slate-400 font-bold text-xl uppercase">%</span>
-                 </div>
-               </div>
-               <div className={`p-4 rounded-2xl ${spo2 > 0 ? 'bg-sky-50 text-sky-500' : 'bg-slate-50 text-slate-300'}`}>
-                  <Droplets className="w-10 h-10" />
-               </div>
-             </div>
-
-             <div className="mt-6 flex gap-2">
-                {spo2 > 0 && spo2 < 92 && <Badge color="bg-amber-100 text-amber-700">Hipóxia Leve</Badge>}
-                {spo2 >= 92 && <Badge color="bg-green-100 text-green-700">Estável</Badge>}
-                {spo2 === 0 && <span className="text-sm text-slate-400 font-medium italic">Aguardando dados...</span>}
-             </div>
-          </div>
+      {/* PRICING SECTION */}
+      <section className="relative z-20 -mt-20 max-w-7xl mx-auto px-6 pb-20">
+        
+        {/* Toggle Mensal/Anual (Visual) */}
+        <div className="flex justify-center mb-12">
+            <div className="bg-white/10 backdrop-blur-md p-1 rounded-xl inline-flex border border-white/20">
+                <button 
+                    onClick={() => setBillingCycle("monthly")}
+                    className={`px-6 py-2 rounded-lg text-sm font-bold transition ${billingCycle === 'monthly' ? 'bg-white text-slate-900 shadow-md' : 'text-white/70 hover:text-white'}`}
+                >
+                    Mensal
+                </button>
+                <button 
+                    onClick={() => setBillingCycle("yearly")}
+                    className={`px-6 py-2 rounded-lg text-sm font-bold transition flex items-center gap-2 ${billingCycle === 'yearly' ? 'bg-white text-slate-900 shadow-md' : 'text-white/70 hover:text-white'}`}
+                >
+                    Anual <span className="text-[10px] bg-green-500 text-white px-1.5 rounded">-20%</span>
+                </button>
+            </div>
         </div>
 
-        {/* RODAPÉ */}
-        <div className="flex flex-col items-center gap-3 pt-6">
-           <div className="flex items-center gap-2 bg-white px-4 py-2 rounded-full shadow-sm text-slate-500 text-xs font-bold uppercase tracking-widest">
-              <RefreshCw className={`w-3 h-3 ${bpm > 0 ? 'animate-spin' : ''}`}/>
-              Última atualização: {lastUpdate || "---"}
-           </div>
-           <p className="text-[10px] text-slate-400 font-bold uppercase">v2.1 - Conexão Segura via Backend</p>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+            
+            {/* PLANO STARTER (FREE) */}
+            <div className="bg-white rounded-3xl p-8 shadow-xl border border-slate-100 flex flex-col relative overflow-hidden">
+                <div className="mb-6">
+                    <h3 className="text-xl font-bold text-slate-800">Starter</h3>
+                    <p className="text-slate-500 text-sm mt-1">Para testes e pequenas clínicas.</p>
+                </div>
+                <div className="mb-6">
+                    <span className="text-4xl font-black text-slate-900">Grátis</span>
+                </div>
+                
+                <ul className="space-y-4 mb-8 flex-1">
+                    <li className="flex items-center gap-3 text-sm text-slate-600">
+                        <Check className="text-indigo-600 w-5 h-5" /> Monitoramento em Tempo Real
+                    </li>
+                    <li className="flex items-center gap-3 text-sm text-slate-600">
+                        <Check className="text-indigo-600 w-5 h-5" /> Até 5 Pacientes
+                    </li>
+                    <li className="flex items-center gap-3 text-sm text-slate-600">
+                        <Check className="text-indigo-600 w-5 h-5" /> Alertas de Queda Básicos
+                    </li>
+                    <li className="flex items-center gap-3 text-sm text-slate-400 line-through decoration-slate-300">
+                        Relatórios em PDF
+                    </li>
+                </ul>
+
+                <button 
+                    onClick={() => handleAccess("free")}
+                    className="w-full py-4 rounded-xl border-2 border-slate-200 font-bold text-slate-600 hover:border-indigo-600 hover:text-indigo-600 transition"
+                >
+                    {isAuthenticated ? "Acessar Painel" : "Começar Grátis"}
+                </button>
+            </div>
+
+            {/* PLANO PREMIUM (DESTAQUE) */}
+            <div className="bg-slate-900 rounded-3xl p-8 shadow-2xl shadow-indigo-500/20 border border-slate-800 flex flex-col relative transform lg:-translate-y-4">
+                <div className="absolute top-0 right-0 bg-indigo-500 text-white text-xs font-bold px-3 py-1 rounded-bl-xl uppercase tracking-wider">
+                    Mais Popular
+                </div>
+                
+                <div className="mb-6">
+                    <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                        Premium <Zap size={18} className="text-yellow-400 fill-yellow-400"/>
+                    </h3>
+                    <p className="text-slate-400 text-sm mt-1">Para clínicas em crescimento.</p>
+                </div>
+                <div className="mb-6">
+                    <div className="flex items-baseline gap-1">
+                        <span className="text-lg text-slate-400">R$</span>
+                        <span className="text-5xl font-black text-white">{billingCycle === 'monthly' ? '199' : '159'}</span>
+                        <span className="text-slate-400">/mês</span>
+                    </div>
+                </div>
+                
+                <ul className="space-y-4 mb-8 flex-1">
+                    <li className="flex items-center gap-3 text-sm text-slate-300">
+                        <Check className="text-emerald-400 w-5 h-5" /> <strong>Tudo do Starter</strong>
+                    </li>
+                    <li className="flex items-center gap-3 text-sm text-slate-300">
+                        <Check className="text-emerald-400 w-5 h-5" /> Pacientes Ilimitados
+                    </li>
+                    <li className="flex items-center gap-3 text-sm text-slate-300">
+                        <Check className="text-emerald-400 w-5 h-5" /> Histórico de 30 dias
+                    </li>
+                    <li className="flex items-center gap-3 text-sm text-slate-300">
+                        <Check className="text-emerald-400 w-5 h-5" /> Relatórios Semanais PDF
+                    </li>
+                </ul>
+
+                <button 
+                    onClick={() => handleAccess("premium")}
+                    className="w-full py-4 rounded-xl bg-indigo-600 text-white font-bold hover:bg-indigo-500 transition shadow-lg shadow-indigo-500/25"
+                >
+                    Assinar Premium
+                </button>
+            </div>
+
+            {/* PLANO ENTERPRISE (PLUS) */}
+            <div className="bg-white rounded-3xl p-8 shadow-xl border border-slate-100 flex flex-col relative overflow-hidden">
+                <div className="mb-6">
+                    <h3 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+                        Enterprise <BrainCircuit size={18} className="text-purple-600"/>
+                    </h3>
+                    <p className="text-slate-500 text-sm mt-1">Alta escala e inteligência.</p>
+                </div>
+                <div className="mb-6">
+                    <div className="flex items-baseline gap-1">
+                        <span className="text-lg text-slate-400">R$</span>
+                        <span className="text-5xl font-black text-slate-900">{billingCycle === 'monthly' ? '499' : '399'}</span>
+                        <span className="text-slate-400">/mês</span>
+                    </div>
+                </div>
+                
+                <ul className="space-y-4 mb-8 flex-1">
+                    <li className="flex items-center gap-3 text-sm text-slate-600">
+                        <Check className="text-purple-600 w-5 h-5" /> <strong>Tudo do Premium</strong>
+                    </li>
+                    <li className="flex items-center gap-3 text-sm text-slate-600">
+                        <Check className="text-purple-600 w-5 h-5" /> IA Preditiva de Riscos
+                    </li>
+                    <li className="flex items-center gap-3 text-sm text-slate-600">
+                        <Check className="text-purple-600 w-5 h-5" /> Acesso à API
+                    </li>
+                    <li className="flex items-center gap-3 text-sm text-slate-600">
+                        <Check className="text-purple-600 w-5 h-5" /> White-label (Sua Marca)
+                    </li>
+                </ul>
+
+                <button 
+                    onClick={() => handleAccess("plus")}
+                    className="w-full py-4 rounded-xl bg-slate-900 text-white font-bold hover:bg-slate-800 transition"
+                >
+                    Falar com Vendas
+                </button>
+            </div>
+
         </div>
+      </section>
 
-      </main>
-
-      <style jsx global>{`
-        @keyframes bounce-short {
-          0%, 100% { transform: translateY(0); }
-          50% { transform: translateY(-5px); }
-        }
-        .animate-bounce-short {
-          animation: bounce-short 2s infinite;
-        }
-      `}</style>
+      {/* FOOTER */}
+      <footer className="bg-slate-50 border-t border-slate-200 py-12 text-center">
+        <div className="flex items-center justify-center gap-2 text-slate-800 font-black text-xl mb-4">
+            <Activity className="text-indigo-600" /> VitalMonitor
+        </div>
+        <p className="text-slate-400 text-sm">
+            &copy; 2024 VitalMonitor Tecnologia em Saúde Ltda. <br/>
+            Desenvolvido com segurança e precisão.
+        </p>
+      </footer>
     </div>
-  );
-}
-
-function Badge({ children, color }: { children: React.ReactNode, color: string }) {
-  return (
-    <span className={`px-3 py-1 rounded-lg text-xs font-black uppercase tracking-tight ${color}`}>
-      {children}
-    </span>
   );
 }
