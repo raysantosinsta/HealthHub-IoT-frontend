@@ -1,173 +1,228 @@
 "use client";
 
 import {
-    Activity, ArrowLeft,
-    BrainCircuit,
-    HeartHandshake,
-    Loader2,
-    ShieldCheck,
-    Sparkles,
-    Stethoscope
-} from 'lucide-react';
-import { useParams, useRouter } from 'next/navigation';
-import { useState } from 'react';
+  ArrowLeft,
+  Bot,
+  AlertTriangle,
+  CheckCircle2,
+  Stethoscope,
+  Activity,
+  Loader2,
+  Phone,
+  BrainCircuit,
+} from "lucide-react";
+import { useParams, useRouter } from "next/navigation";
+import { useState, useEffect } from "react";
 
-// INTERFACE ALINHADA COM O SEU AGENTSERVICE (NESTJS)
-interface AIAnalysis {
-  status_resumo: "Estável" | "Atenção" | "Crítico" | "Erro";
-  analise_detalhada: string;
-  recomendacao_enfermagem: string;
-  alerta_geriatrico: string;
+interface PatientGuidance {
+  status: "NORMAL" | "ATENCAO" | "ALERTA" | "ERRO";
+  message: string;
+  action: string;
+  context?: {
+    lastVital: number;
+    avgBpm7Days: number | null; // Adicione esta linha
+    activity: string;
+    limits: string;
+  };
 }
 
-export default function AgentPage() {
+export default function PatientAgentPage() {
   const { id } = useParams();
   const router = useRouter();
 
-  const [analysis, setAnalysis] = useState<AIAnalysis | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [lastRun, setLastRun] = useState<string | null>(null);
+  const [guidance, setGuidance] = useState<PatientGuidance | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [isAiLoading, setIsAiLoading] = useState(false); // Novo estado para o botão da IA
 
-  const runAnalysis = async () => {
-    setLoading(true);
-    setAnalysis(null);
+  // 1. Efeito para carregar DADOS DO SENSOR (Tempo Real - Sem IA)
+  useEffect(() => {
+    if (!id) return;
 
+    const fetchSensorData = async () => {
+      try {
+        // Chamamos a rota com um query param ?onlyContext=true
+        const res = await fetch(
+          `http://localhost:3001/agent/guidance/${id}?onlyContext=true`,
+        );
+        const data = await res.json();
+
+        // Atualiza apenas o contexto, mantendo a mensagem da IA anterior se existir
+        setGuidance((prev) => ({
+          status: prev?.status || "NORMAL",
+          message:
+            prev?.message || "Clique no botão abaixo para uma nova análise.",
+          action: prev?.action || "Aguardando comando.",
+          ...data, // Sobrescreve com o contexto novo vindo do banco
+        }));
+      } catch (error) {
+        console.error("Erro ao buscar sensores:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchSensorData();
+    const interval = setInterval(fetchSensorData, 5000); // Sensores atualizam a cada 5s
+    return () => clearInterval(interval);
+  }, [id]);
+
+  // 2. Função disparada pelo BOTÃO para chamar a IA
+  const askAI = async () => {
+    setIsAiLoading(true);
     try {
-      // Chamada real para o seu endpoint NestJS
-      const res = await fetch(`http://localhost:3001/agent/analysis/${id}`);
-      if (!res.ok) throw new Error("Falha na comunicação com o servidor");
-      
-      const data: AIAnalysis = await res.json();
-      setAnalysis(data);
-      setLastRun(new Date().toLocaleTimeString('pt-BR'));
+      const res = await fetch(`http://localhost:3001/agent/guidance/${id}`); // Chama completo (com IA)
+      const data = await res.json();
+      setGuidance(data);
     } catch (error) {
-      console.error(error);
-      alert("Erro ao gerar análise. Verifique se o backend está rodando.");
+      console.error("Erro na IA:", error);
     } finally {
-      setLoading(false);
+      setIsAiLoading(false);
     }
   };
 
-  // Helper para cores de status baseado no retorno do NestJS
-  const getStatusColor = (status: string) => {
+  const getStatusConfig = (status: string) => {
     switch (status) {
-      case 'Crítico': return 'bg-red-500';
-      case 'Atenção': return 'bg-orange-500';
-      case 'Estável': return 'bg-emerald-500';
-      default: return 'bg-slate-400';
+      case "ALERTA":
+        return {
+          bg: "bg-red-500",
+          text: "text-red-600",
+          icon: (
+            <AlertTriangle size={64} className="text-white animate-pulse" />
+          ),
+          title: "Atenção Crítica",
+        };
+      case "ATENCAO":
+        return {
+          bg: "bg-amber-500",
+          text: "text-amber-700",
+          icon: <Stethoscope size={64} className="text-white" />,
+          title: "Requer Cuidado",
+        };
+      case "NORMAL":
+        return {
+          bg: "bg-emerald-500",
+          text: "text-emerald-700",
+          icon: <CheckCircle2 size={64} className="text-white" />,
+          title: "Tudo Normal",
+        };
+      default:
+        return {
+          bg: "bg-slate-400",
+          text: "text-slate-600",
+          icon: <Bot size={64} className="text-white" />,
+          title: "Aguardando",
+        };
     }
   };
+
+  if (loading)
+    return (
+      <div className="h-screen flex flex-col items-center justify-center bg-slate-50">
+        <Loader2 className="animate-spin text-[#06B6D4]" size={48} />
+      </div>
+    );
+
+  const config = getStatusConfig(guidance?.status || "ERRO");
 
   return (
-    <div className="min-h-screen bg-[#F1F5F9] font-sans text-[#1E293B] pb-10">
-      <header className="bg-white border-b border-slate-200 sticky top-0 z-50 px-6 py-4 shadow-sm">
+    <div className="min-h-screen bg-slate-50 font-sans text-slate-900 pb-10">
+      <header className="bg-white border-b border-slate-200 px-6 py-4 sticky top-0 z-10">
         <div className="max-w-5xl mx-auto flex items-center justify-between">
-           <button 
-                onClick={() => router.back()} 
-                className="flex items-center gap-2 text-slate-500 hover:text-[#06B6D4] transition font-bold text-sm"
-            >
-                <ArrowLeft size={18} /> Voltar
-            </button>
-            <div className="flex items-center gap-2 px-3 py-1 bg-[#1E293B]/5 rounded-full border border-[#1E293B]/10">
-                <BrainCircuit size={14} className="text-[#06B6D4]" />
-                <span className="text-xs font-bold text-[#1E293B] uppercase tracking-wider">Guardian AI Engine</span>
-            </div>
+          <button
+            onClick={() => router.back()}
+            className="flex items-center gap-2 text-slate-500 font-bold"
+          >
+            <ArrowLeft size={20} /> Voltar
+          </button>
+          <span className="text-xs font-bold uppercase tracking-widest text-slate-400">
+            AI Health Assistant
+          </span>
         </div>
       </header>
 
-      <main className="max-w-5xl mx-auto px-6 py-10">
-        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 mb-12">
-            <div>
-                <h1 className="text-4xl font-black text-[#1E293B] tracking-tight mb-2 flex items-center gap-3">
-                    VitalMonitor <span className="text-[#06B6D4]">Guardian AI</span>
-                    <Sparkles className="text-[#06B6D4] animate-pulse" size={28} />
-                </h1>
-                <p className="text-lg text-slate-500 max-w-2xl leading-relaxed">
-                    Auditoria clínica autônoma. Cruzamento de dados vitais, atividade atual e riscos geriátricos.
-                </p>
+      <main className="max-w-5xl mx-auto px-6 pt-8 grid grid-cols-1 md:grid-cols-2 gap-8">
+        {/* LADO ESQUERDO: SENSORES (Tempo Real) */}
+        <div className="space-y-6">
+          <h2 className="text-lg font-black text-slate-400 uppercase flex items-center gap-2">
+            <Activity size={20} /> Sensores em Tempo Real
+          </h2>
+          <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-100 space-y-4">
+            <div className="flex justify-between items-center border-b pb-4">
+              <span className="text-slate-500 font-medium">
+                Frequência Atual
+              </span>
+              <div className="text-right">
+                <span className="text-2xl font-black text-[#06B6D4]">
+                  {guidance?.context?.lastVital || "--"}
+                </span>
+                <span className="text-xs font-bold text-slate-400 ml-1">
+                  BPM
+                </span>
+              </div>
             </div>
 
-            <button
-                onClick={runAnalysis}
-                disabled={loading}
-                className={`
-                    group relative px-8 py-5 rounded-2xl font-bold text-white shadow-xl transition-all flex items-center gap-3 overflow-hidden
-                    ${loading ? 'bg-slate-400 cursor-not-allowed' : 'bg-[#1E293B] hover:bg-slate-800'}
-                `}
-            >
-                {loading ? (
-                    <> <Loader2 className="animate-spin" /> Analisando Contexto... </>
-                ) : (
-                    <> <BrainCircuit size={24} className="text-[#06B6D4]" /> Gerar Auditoria IA </>
-                )}
-            </button>
+            <div className="flex justify-between items-center border-b pb-4">
+              <span className="text-slate-500 font-medium">Média (7 dias)</span>
+              <div className="text-right">
+                <span className="text-xl font-bold text-slate-600">
+                  {guidance?.context?.avgBpm7Days || "---"}
+                </span>
+                <span className="text-xs font-bold text-slate-400 ml-1">
+                  BPM
+                </span>
+              </div>
+            </div>
+
+            {/* Indicador de Tendência */}
+            {guidance?.context?.avgBpm7Days && guidance?.context?.lastVital && (
+              <div
+                className={`text-xs font-bold p-2 rounded-lg text-center ${
+                  guidance.context.lastVital > guidance.context.avgBpm7Days
+                    ? "bg-orange-50 text-orange-600"
+                    : "bg-green-50 text-green-600"
+                }`}
+              >
+                {guidance.context.lastVital > guidance.context.avgBpm7Days
+                  ? "↑ Acima da sua média semanal"
+                  : "↓ Abaixo/Igual à sua média semanal"}
+              </div>
+            )}
+          </div>
         </div>
 
-        {!analysis && !loading && (
-            <div className="border-3 border-dashed border-slate-200 rounded-3xl p-16 text-center bg-slate-50/50">
-                <BrainCircuit size={48} className="text-slate-300 mx-auto mb-6" />
-                <h3 className="text-xl font-bold text-[#1E293B] mb-2">Aguardando solicitação</h3>
-                <p className="text-slate-500 max-w-md mx-auto">Clique no botão acima para processar os sinais vitais recentes e gerar o parecer clínico.</p>
-            </div>
-        )}
+        {/* LADO DIREITO: IA (Sob Demanda) */}
+        <div className="space-y-6">
+          <h2 className="text-lg font-black text-slate-400 uppercase flex items-center gap-2">
+            <Bot size={20} /> Análise da IA
+          </h2>
+          <div
+            className={`${config.bg} rounded-[2.5rem] p-8 shadow-xl text-center min-h-[250px] flex flex-col items-center justify-center transition-all duration-500`}
+          >
+            {isAiLoading ? (
+              <Loader2 size={40} className="text-white animate-spin" />
+            ) : (
+              config.icon
+            )}
+            <h1 className="text-2xl font-black text-white mt-4">
+              {isAiLoading ? "Processando..." : config.title}
+            </h1>
+            <p className="text-white/90 italic mt-2">"{guidance?.message}"</p>
+          </div>
 
-        {analysis && (
-            <div className="space-y-8 animate-in fade-in slide-in-from-bottom-8 duration-700">
-                <div className="relative overflow-hidden rounded-3xl shadow-2xl bg-white border border-slate-100">
-                    <div className={`h-2 w-full ${getStatusColor(analysis.status_resumo)}`} />
-                    
-                    <div className="p-8 md:p-10">
-                        <div className="flex justify-between items-start mb-6">
-                            <span className={`px-4 py-1.5 rounded-lg text-xs font-black uppercase tracking-widest border 
-                                ${analysis.status_resumo === 'Crítico' ? 'bg-red-50 text-red-600 border-red-200' : 
-                                  analysis.status_resumo === 'Atenção' ? 'bg-orange-50 text-orange-600 border-orange-200' : 
-                                  'bg-emerald-50 text-emerald-600 border-emerald-200'}
-                            `}>
-                                STATUS: {analysis.status_resumo}
-                            </span>
-                            <span className="text-xs font-mono text-slate-400 flex items-center gap-2">
-                                <Activity size={14} /> Ref: {lastRun}
-                            </span>
-                        </div>
-
-                        <h2 className="text-2xl font-bold text-[#1E293B] leading-tight mb-4">Parecer da Inteligência Artificial</h2>
-                        
-                        <div className="bg-[#F1F5F9] p-6 rounded-2xl border border-slate-200 text-slate-700 leading-relaxed text-lg">
-                            {analysis.analise_detalhada}
-                        </div>
-                    </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div className="bg-[#1E293B] rounded-3xl p-8 text-white shadow-xl relative overflow-hidden">
-                        <div className="relative z-10">
-                            <h3 className="text-[#06B6D4] font-bold uppercase tracking-widest text-xs mb-4 flex items-center gap-2">
-                                <Stethoscope size={16} /> Recomendação de Enfermagem
-                            </h3>
-                            <p className="text-xl font-medium leading-relaxed">{analysis.recomendacao_enfermagem}</p>
-                        </div>
-                    </div>
-
-                    <div className="bg-white rounded-3xl p-8 border border-[#06B6D4]/20 shadow-xl shadow-[#06B6D4]/5 relative overflow-hidden">
-                        <div className="relative z-10">
-                             <h3 className="text-[#06B6D4] font-bold uppercase tracking-widest text-xs mb-4 flex items-center gap-2">
-                                <HeartHandshake size={16} /> Olhar Gerontológico
-                            </h3>
-                            <p className="text-xl font-medium text-slate-600 leading-relaxed italic">
-                                "{analysis.alerta_geriatrico}"
-                            </p>
-                        </div>
-                    </div>
-                </div>
-
-                <div className="text-center py-6 opacity-50">
-                    <p className="text-xs text-slate-400 flex items-center justify-center gap-2">
-                        <ShieldCheck size={12} />
-                        Análise via Gemini Pro. Uso exclusivo para apoio à decisão clínica.
-                    </p>
-                </div>
-            </div>
-        )}
+          <button
+            onClick={askAI}
+            disabled={isAiLoading}
+            className="w-full bg-[#06B6D4] hover:bg-[#0891B2] disabled:bg-slate-300 text-white font-black py-4 rounded-2xl shadow-lg flex items-center justify-center gap-3 transition-all"
+          >
+            {isAiLoading ? (
+              "IA PENSANDO..."
+            ) : (
+              <>
+                <BrainCircuit size={24} /> ANALISAR COM INTELIGÊNCIA ARTIFICIAL
+              </>
+            )}
+          </button>
+        </div>
       </main>
     </div>
   );
